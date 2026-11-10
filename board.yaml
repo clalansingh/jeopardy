@@ -1,0 +1,159 @@
+# Jeopardy Board Configuration
+# Fill in categories and answers inside the quotes.
+# To make any question a Daily Double, add `daily_double: true` under that question, e.g.:
+#       - value: 400
+#         answer: "Your clue text here"
+#         daily_double: true
+# If `daily_double` is omitted, it defaults to `false`.
+
+jeopardy:
+  - category: ""
+    questions:
+      - value: 100
+        answer: ""
+      - value: 200
+        answer: ""
+      - value: 300
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 500
+        answer: ""
+  - category: ""
+    questions:
+      - value: 100
+        answer: ""
+      - value: 200
+        answer: ""
+      - value: 300
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 500
+        answer: ""
+  - category: ""
+    questions:
+      - value: 100
+        answer: ""
+      - value: 200
+        answer: ""
+      - value: 300
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 500
+        answer: ""
+  - category: ""
+    questions:
+      - value: 100
+        answer: ""
+      - value: 200
+        answer: ""
+      - value: 300
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 500
+        answer: ""
+  - category: ""
+    questions:
+      - value: 100
+        answer: ""
+      - value: 200
+        answer: ""
+      - value: 300
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 500
+        answer: ""
+  - category: ""
+    questions:
+      - value: 100
+        answer: ""
+      - value: 200
+        answer: ""
+      - value: 300
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 500
+        answer: ""
+
+double_jeopardy:
+  - category: ""
+    questions:
+      - value: 200
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 600
+        answer: ""
+      - value: 800
+        answer: ""
+      - value: 1000
+        answer: ""
+  - category: ""
+    questions:
+      - value: 200
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 600
+        answer: ""
+      - value: 800
+        answer: ""
+      - value: 1000
+        answer: ""
+  - category: ""
+    questions:
+      - value: 200
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 600
+        answer: ""
+      - value: 800
+        answer: ""
+      - value: 1000
+        answer: ""
+  - category: ""
+    questions:
+      - value: 200
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 600
+        answer: ""
+      - value: 800
+        answer: ""
+      - value: 1000
+        answer: ""
+  - category: ""
+    questions:
+      - value: 200
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 600
+        answer: ""
+      - value: 800
+        answer: ""
+      - value: 1000
+        answer: ""
+  - category: ""
+    questions:
+      - value: 200
+        answer: ""
+      - value: 400
+        answer: ""
+      - value: 600
+        answer: ""
+      - value: 800
+        answer: ""
+      - value: 1000
+        answer: ""
+
+final_jeopardy:
+  category: ""
+  answer: ""
