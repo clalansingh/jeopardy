@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { computeCountdownSegments } from '../components/PodiumCountdown';
+import { getAvailableBoards } from '../utils/boardLoader';
 import { BuzzerManager, deriveHostPeerId } from '../utils/buzzerManager';
 import {
   parseBoardYaml,
@@ -9,10 +11,17 @@ import {
   updateFinalJeopardyResult,
 } from '../utils/gameLogic';
 
-describe('YAML Board Parser', () => {
+describe('YAML Board Parser & /boards Loader', () => {
+  it('discovers multiple board files in the /boards directory', () => {
+    const boards = getAvailableBoards();
+    const filenames = boards.map((b) => b.filename);
+    expect(filenames).toContain('board.yaml');
+    expect(filenames).toContain('popculture.yml');
+  });
+
   it('parses the skeleton board.yaml with 6 categories and 5 clues per round and defaults daily_double to false', () => {
     const yamlContent = fs.readFileSync(
-      path.resolve(process.cwd(), 'board.yaml'),
+      path.resolve(process.cwd(), 'boards/board.yaml'),
       'utf-8'
     );
     const data = parseBoardYaml(yamlContent);
@@ -52,6 +61,65 @@ jeopardy:
     expect(parsed.jeopardy[0].category).toBe('History');
     expect(parsed.jeopardy[0].clues[0].dailyDouble).toBe(false);
     expect(parsed.jeopardy[0].clues[1].dailyDouble).toBe(true);
+  });
+});
+
+describe('Podium Countdown Segmented Bar (podium-countdown.png)', () => {
+  it('ticks inward symmetrically from both sides from red (true) to black (false)', () => {
+    // 5 seconds remaining: all 9 segments lit
+    expect(computeCountdownSegments(5, 5)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
+
+    // 4 seconds remaining (1s elapsed): 1 black on left & right, 7 lit in center
+    expect(computeCountdownSegments(5, 4)).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+    ]);
+
+    // 3 seconds remaining (2s elapsed): 2 black on left & right, 5 lit in center (matches podium-countdown.png)
+    expect(computeCountdownSegments(5, 3)).toEqual([
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
+
+    // 1 second remaining (4s elapsed): only center segment lit
+    expect(computeCountdownSegments(5, 1)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+    ]);
+
+    // 0 seconds remaining: all 9 segments dark/black
+    expect(computeCountdownSegments(5, 0)).toEqual(Array(9).fill(false));
   });
 });
 
@@ -149,7 +217,7 @@ describe('Reversible Per-Clue Scoring & Completed Clue Review', () => {
   });
 });
 
-describe('BuzzerManager Session & PeerJS ID Derivation', () => {
+describe('BuzzerManager Sequential Buzzer & Lockout Flow', () => {
   it('derives deterministic URL-safe PeerJS IDs from the session password', () => {
     const id1 = deriveHostPeerId('GameNight2026');
     const id2 = deriveHostPeerId('  gamenight2026 ');
@@ -157,7 +225,7 @@ describe('BuzzerManager Session & PeerJS ID Derivation', () => {
     expect(id1).toMatch(/^jeopardy-host-gamenight2026-[0-9a-f]{8}$/);
   });
 
-  it('validates session password, orders buzzes by timestamp, and locks out wrong players on re-open', () => {
+  it('keeps buzzers locked until enabled, locks on buzz-in, and re-activates excluding wrong players', () => {
     const manager = new BuzzerManager();
     manager.initSession('secret123', [
       { id: 'p1', name: 'Alice', score: 0 },
@@ -167,25 +235,29 @@ describe('BuzzerManager Session & PeerJS ID Derivation', () => {
     expect(manager.verifyJoin('p1', 'wrong').ok).toBe(false);
     expect(manager.verifyJoin('p1', 'secret123').ok).toBe(true);
 
-    // Buzzers locked initially
+    // 1. Buzzers start locked before host finishes reading clue aloud
+    expect(manager.getState().buzzerOpen).toBe(false);
     expect(manager.recordBuzz('p1', 100)).toBe(false);
 
-    // Host reveals clue -> opens buzzers
+    // 2. Host clicks "Enable Buzzers" -> opens buzzers
     manager.openBuzzers('HISTORY ($200)');
+    expect(manager.getState().buzzerOpen).toBe(true);
+
+    // 3. Bob buzzes in first -> locks buzzers immediately while Bob answers
     expect(manager.recordBuzz('p2', 1000)).toBe(true);
-    expect(manager.recordBuzz('p1', 1045)).toBe(true);
+    expect(manager.getState().buzzerOpen).toBe(false);
+    expect(manager.getState().buzzOrder[0].contestantId).toBe('p2');
+    expect(manager.recordBuzz('p1', 1045)).toBe(false);
 
-    const state = manager.getState();
-    expect(state.buzzOrder).toHaveLength(2);
-    expect(state.buzzOrder[0].contestantId).toBe('p2');
-    expect(state.buzzOrder[0].deltaMs).toBe(0);
-    expect(state.buzzOrder[1].contestantId).toBe('p1');
-    expect(state.buzzOrder[1].deltaMs).toBe(45);
-
-    // Suppose Bob (p2) answers wrong -> host re-opens buzzers with p2 locked out
+    // 4. Bob answers wrong -> host clicks -$200, which immediately re-opens buzzers with Bob locked out
     manager.openBuzzers('HISTORY ($200)', ['p2']);
-    expect(manager.recordBuzz('p2', 2000)).toBe(false);
-    expect(manager.recordBuzz('p1', 2010)).toBe(true);
+    expect(manager.getState().buzzerOpen).toBe(true);
+    expect(manager.recordBuzz('p2', 2000)).toBe(false); // Bob cannot buzz in again for same clue
+    expect(manager.recordBuzz('p1', 2010)).toBe(true); // Alice can buzz in
     expect(manager.getState().buzzOrder[0].contestantId).toBe('p1');
+
+    // 5. If Alice also answers wrong, all contestants are locked out so buzzers stay closed
+    manager.openBuzzers('HISTORY ($200)', ['p2', 'p1']);
+    expect(manager.getState().buzzerOpen).toBe(false);
   });
 });

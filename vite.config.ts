@@ -4,7 +4,6 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  // Relative base path ensures assets work on GitHub Pages under any repo name (e.g. /jeopardy/)
   base: './',
   plugins: [
     react(),
@@ -16,6 +15,20 @@ export default defineConfig({
         const destYaml = path.resolve(outDir, 'board.yaml');
         if (fs.existsSync(srcYaml)) {
           fs.copyFileSync(srcYaml, destYaml);
+        }
+
+        const srcBoardsDir = path.resolve(process.cwd(), 'boards');
+        const destBoardsDir = path.resolve(outDir, 'boards');
+        if (fs.existsSync(srcBoardsDir)) {
+          fs.mkdirSync(destBoardsDir, { recursive: true });
+          for (const file of fs.readdirSync(srcBoardsDir)) {
+            if (file.endsWith('.yaml') || file.endsWith('.yml')) {
+              fs.copyFileSync(
+                path.join(srcBoardsDir, file),
+                path.join(destBoardsDir, file)
+              );
+            }
+          }
         }
       },
     },

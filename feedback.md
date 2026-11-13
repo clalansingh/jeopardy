@@ -1,0 +1,11 @@
+The following feedback has been gathered from testing groups:
+
+- Add the ability to choose from multiple boards in a /boards directory, shown in the UI in the Setup page (just show the filenames like board.yml or popculture.yml)
+- Make the home page simpler, let the user choose between "Host" and "Join", only showing all the setup options on the Host page
+- If the host visits the setup page, ask if the board and scores should be reset. Make sure to persist the board state and scores so that they can resume after visiting the setup page from a game in progress
+- When an answer is revealed, the buzzers should not be active right away. The host needs to finish reading the answer aloud, and then they click a button to enable the buzzers. When someone buzzes in, the UI updates to show who it was, and use the existing +/- UI for them to gain or lose money based on if they got the question right or wrong. If they got it wrong, the buzzers are then activated immediately, repeating the process for the next person who buzzed in. A player who buzzed in and got it incorrect cannot buzz in again for the same clue.
+- We need to add timer functionality to multiple areas:
+  - After the question is read aloud, there should be a 5 second time period where the buzzers are active. If no one buzzes in, then a chime plays and the player in control of the board has to select again.
+  - When a player buzzes in to solve a clue, they have 5 seconds before they run out of time. Play a chime, but let the host be the one to click the button to subtract the money from their total
+  - For both of these timers, have a section in the Setup page to configure these durations. Allow them to be disabled as well.
+  - For both of these timers, make sure there is a visual indicator of the time going by. Use a segmented line that ticks down from both sides to the center from red to black, indicating each second that has elapsed. See the image `podium-countdown.png` for an example of the look and feel of the timer.

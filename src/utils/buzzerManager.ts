@@ -89,12 +89,16 @@ export class BuzzerManager {
     clueLabel: string | null = null,
     lockedOutContestantIds: string[] = []
   ): void {
-    this.buzzerOpen = true;
+    this.lockedOutIds = new Set(lockedOutContestantIds);
+    this.buzzOrder = [];
     if (clueLabel !== null) {
       this.activeClueLabel = clueLabel;
     }
-    this.buzzOrder = [];
-    this.lockedOutIds = new Set(lockedOutContestantIds);
+    // Only open if there is at least one contestant not locked out
+    const eligibleCount = Array.from(this.contestants.keys()).filter(
+      (id) => !this.lockedOutIds.has(id)
+    ).length;
+    this.buzzerOpen = eligibleCount > 0;
   }
 
   public lockBuzzers(clearQueue = true): void {
@@ -126,6 +130,8 @@ export class BuzzerManager {
       timestamp: nowMs,
       deltaMs,
     });
+    // Lock buzzers immediately once someone buzzes in so they can answer
+    this.buzzerOpen = false;
     return true;
   }
 

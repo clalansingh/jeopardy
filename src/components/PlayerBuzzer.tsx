@@ -13,6 +13,7 @@ interface PlayerBuzzerProps {
   onSwitchContestant: () => void;
   onDisconnectSession: () => void;
   onBuzz: (contestantId: string) => void;
+  onBackToHome?: () => void;
 }
 
 export const PlayerBuzzer: React.FC<PlayerBuzzerProps> = ({
@@ -26,6 +27,7 @@ export const PlayerBuzzer: React.FC<PlayerBuzzerProps> = ({
   onSwitchContestant,
   onDisconnectSession,
   onBuzz,
+  onBackToHome,
 }) => {
   const [password, setPassword] = useState<string>('');
   const [selectedContestantId, setSelectedContestantId] = useState<string>('');
@@ -53,9 +55,29 @@ export const PlayerBuzzer: React.FC<PlayerBuzzerProps> = ({
     return (
       <div className="setup-screen">
         <form className="setup-card" onSubmit={handlePasswordSubmit}>
-          <h1 className="setup-title" style={{ fontSize: '2.5rem' }}>
-            JEOPARDY! BUZZER
-          </h1>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            {onBackToHome ? (
+              <button
+                type="button"
+                className="small-btn"
+                onClick={onBackToHome}
+              >
+                ← Home
+              </button>
+            ) : (
+              <div style={{ width: 68 }} />
+            )}
+            <h1 className="setup-title" style={{ fontSize: '2.2rem' }}>
+              JOIN BUZZER
+            </h1>
+            <div style={{ width: 68 }} />
+          </div>
 
           <div className="setup-section">
             <label className="setup-label">Enter Session Password</label>
@@ -170,7 +192,7 @@ export const PlayerBuzzer: React.FC<PlayerBuzzerProps> = ({
 
   let statusClass = 'locked';
   let mainTitle = 'LOCKED';
-  let subtitle = 'Waiting for host to reveal a clue...';
+  let subtitle = 'Waiting for host to enable buzzers...';
 
   if (isLockedOut) {
     statusClass = 'locked-out';
@@ -178,7 +200,7 @@ export const PlayerBuzzer: React.FC<PlayerBuzzerProps> = ({
     subtitle = 'Already answered on this clue';
   } else if (buzzIndex === 0) {
     statusClass = 'buzzed-first';
-    mainTitle = 'YOU BUZZED 1ST!';
+    mainTitle = 'YOU BUZZED IN!';
     subtitle = 'Answer aloud now!';
   } else if (buzzIndex > 0) {
     const entry = sessionState.buzzOrder[buzzIndex];

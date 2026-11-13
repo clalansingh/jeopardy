@@ -66,11 +66,18 @@ export interface FinalJeopardyState {
   outcomes: Record<string, ClueOutcome | undefined>;
 }
 
+export interface TimerSettings {
+  buzzerWindowEnabled: boolean;
+  buzzerWindowSeconds: number;
+  playerAnswerEnabled: boolean;
+  playerAnswerSeconds: number;
+}
+
 export interface BuzzEntry {
   contestantId: string;
   contestantName: string;
   timestamp: number;
-  deltaMs: number; // 0 for 1st place, +X ms after 1st for subsequent buzzes
+  deltaMs: number;
 }
 
 export interface BuzzerSessionState {

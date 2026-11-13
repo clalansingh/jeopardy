@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import defaultBoardYaml from '../board.yaml?raw';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ClueModal } from './components/ClueModal';
 import { FinalJeopardy } from './components/FinalJeopardy';
 import { GameBoard } from './components/GameBoard';
+import { LandingPage } from './components/LandingPage';
 import { PlayerBuzzer } from './components/PlayerBuzzer';
 import { SetupScreen } from './components/SetupScreen';
 import { useBuzzerSocket } from './hooks/useBuzzerSocket';
@@ -13,7 +13,9 @@ import type {
   Contestant,
   FinalJeopardyState,
   RoundId,
+  TimerSettings,
 } from './types/game';
+import { getAvailableBoards } from './utils/boardLoader';
 import {
   formatCurrency,
   parseBoardYaml,
@@ -22,6 +24,27 @@ import {
   updateFinalJeopardyResult,
 } from './utils/gameLogic';
 
+const STORAGE_KEY = 'jeopardy_saved_state_v1';
+
+const DEFAULT_TIMER_SETTINGS: TimerSettings = {
+  buzzerWindowEnabled: true,
+  buzzerWindowSeconds: 5,
+  playerAnswerEnabled: true,
+  playerAnswerSeconds: 5,
+};
+
+interface SavedGameState {
+  hasGameInProgress: boolean;
+  selectedBoardFilename: string;
+  password: string;
+  timerSettings: TimerSettings;
+  round: RoundId;
+  contestants: Contestant[];
+  jeopardyCategories: CategoryState[];
+  doubleJeopardyCategories: CategoryState[];
+  finalJeopardy: FinalJeopardyState;
+}
+
 interface ActiveClueRef {
   round: 'jeopardy' | 'double_jeopardy';
   categoryIndex: number;
@@ -29,11 +52,72 @@ interface ActiveClueRef {
   categoryTitle: string;
 }
 
+type ViewMode = 'home' | 'host_setup' | 'host_game' | 'join';
+
+function loadSavedState(): SavedGameState | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as SavedGameState;
+  } catch {
+    return null;
+  }
+}
+
 export const App: React.FC = () => {
-  const isBuzzRoute =
+  const availableBoards = useMemo(() => getAvailableBoards(), []);
+  const saved = useMemo(() => loadSavedState(), []);
+
+  const initialIsDirectBuzzUrl =
     new URLSearchParams(window.location.search).get('mode') === 'buzz' ||
     window.location.hash === '#/buzz' ||
     window.location.pathname.endsWith('/buzz');
+
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    initialIsDirectBuzzUrl ? 'join' : 'home'
+  );
+
+  const [hasGameInProgress, setHasGameInProgress] = useState<boolean>(
+    saved?.hasGameInProgress ?? false
+  );
+  const [selectedBoardFilename, setSelectedBoardFilename] = useState<string>(
+    saved?.selectedBoardFilename || availableBoards[0]?.filename || 'board.yaml'
+  );
+  const [password, setPassword] = useState<string>(
+    saved?.password ?? 'jeopardy'
+  );
+  const [timerSettings, setTimerSettings] = useState<TimerSettings>(
+    saved?.timerSettings ?? DEFAULT_TIMER_SETTINGS
+  );
+  const [contestants, setContestants] = useState<Contestant[]>(
+    saved?.contestants ?? [
+      { id: 'player-1', name: 'Player 1', score: 0 },
+      { id: 'player-2', name: 'Player 2', score: 0 },
+      { id: 'player-3', name: 'Player 3', score: 0 },
+    ]
+  );
+
+  const defaultParsedBoard = useMemo(() => {
+    const entry =
+      availableBoards.find((b) => b.filename === selectedBoardFilename) ??
+      availableBoards[0];
+    return parseBoardYaml(entry?.content ?? '');
+  }, [availableBoards, selectedBoardFilename]);
+
+  const [round, setRound] = useState<RoundId>(saved?.round ?? 'jeopardy');
+  const [jeopardyCategories, setJeopardyCategories] = useState<CategoryState[]>(
+    () => saved?.jeopardyCategories ?? defaultParsedBoard.jeopardy
+  );
+  const [doubleJeopardyCategories, setDoubleJeopardyCategories] = useState<
+    CategoryState[]
+  >(() => saved?.doubleJeopardyCategories ?? defaultParsedBoard.double_jeopardy);
+  const [finalJeopardy, setFinalJeopardy] = useState<FinalJeopardyState>(
+    () => saved?.finalJeopardy ?? defaultParsedBoard.final_jeopardy
+  );
+
+  const [activeClueRef, setActiveClueRef] = useState<ActiveClueRef | null>(
+    null
+  );
 
   const {
     sessionState,
@@ -50,53 +134,47 @@ export const App: React.FC = () => {
     playerBuzz,
   } = useBuzzerSocket();
 
-  const [inSetup, setInSetup] = useState<boolean>(true);
-  const [password, setPassword] = useState<string>('jeopardy');
-  const [contestants, setContestants] = useState<Contestant[]>([
-    { id: 'player-1', name: 'Player 1', score: 0 },
-    { id: 'player-2', name: 'Player 2', score: 0 },
-    { id: 'player-3', name: 'Player 3', score: 0 },
+  // Persist game state and scores whenever state updates
+  useEffect(() => {
+    try {
+      const stateToSave: SavedGameState = {
+        hasGameInProgress,
+        selectedBoardFilename,
+        password,
+        timerSettings,
+        round,
+        contestants,
+        jeopardyCategories,
+        doubleJeopardyCategories,
+        finalJeopardy,
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [
+    hasGameInProgress,
+    selectedBoardFilename,
+    password,
+    timerSettings,
+    round,
+    contestants,
+    jeopardyCategories,
+    doubleJeopardyCategories,
+    finalJeopardy,
   ]);
 
-  const [round, setRound] = useState<RoundId>('jeopardy');
-  const [jeopardyCategories, setJeopardyCategories] = useState<CategoryState[]>(
-    () => parseBoardYaml(defaultBoardYaml).jeopardy
-  );
-  const [doubleJeopardyCategories, setDoubleJeopardyCategories] = useState<
-    CategoryState[]
-  >(() => parseBoardYaml(defaultBoardYaml).double_jeopardy);
-  const [finalJeopardy, setFinalJeopardy] = useState<FinalJeopardyState>(
-    () => parseBoardYaml(defaultBoardYaml).final_jeopardy
-  );
+  if (viewMode === 'home') {
+    return (
+      <LandingPage
+        hasGameInProgress={hasGameInProgress}
+        onSelectHost={() => setViewMode('host_setup')}
+        onSelectJoin={() => setViewMode('join')}
+      />
+    );
+  }
 
-  const [activeClueRef, setActiveClueRef] = useState<ActiveClueRef | null>(
-    null
-  );
-
-  const baseUrl = `${window.location.origin}${window.location.pathname.replace(/\/index\.html$/, '')}`;
-  const buzzUrl = `${baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`}?mode=buzz`;
-
-  const loadStaticBoardYaml = useCallback(async () => {
-    try {
-      const res = await fetch('./board.yaml', { cache: 'no-store' });
-      if (res.ok) {
-        const yamlText = await res.text();
-        const parsed = parseBoardYaml(yamlText);
-        setJeopardyCategories(parsed.jeopardy);
-        setDoubleJeopardyCategories(parsed.double_jeopardy);
-        setFinalJeopardy(parsed.final_jeopardy);
-      }
-    } catch {
-      // Uses bundled defaultBoardYaml fallback
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isBuzzRoute) return;
-    loadStaticBoardYaml();
-  }, [isBuzzRoute, loadStaticBoardYaml]);
-
-  if (isBuzzRoute) {
+  if (viewMode === 'join') {
     return (
       <PlayerBuzzer
         sessionState={sessionState}
@@ -109,27 +187,53 @@ export const App: React.FC = () => {
         onSwitchContestant={playerLeave}
         onDisconnectSession={playerDisconnectSession}
         onBuzz={playerBuzz}
+        onBackToHome={() => {
+          playerDisconnectSession();
+          setViewMode('home');
+        }}
       />
     );
   }
 
-  const handleStartGame = (
-    newContestants: Contestant[],
-    newPassword: string
-  ) => {
-    setContestants(newContestants);
-    setPassword(newPassword);
-    setInSetup(false);
-    hostInitSession(newPassword, newContestants);
+  const handleSaveSetup = (options: {
+    boardFilename: string;
+    contestants: Contestant[];
+    password: string;
+    timerSettings: TimerSettings;
+    resetBoardAndScores: boolean;
+  }) => {
+    setSelectedBoardFilename(options.boardFilename);
+    setContestants(options.contestants);
+    setPassword(options.password);
+    setTimerSettings(options.timerSettings);
+
+    if (options.resetBoardAndScores || !hasGameInProgress) {
+      const boardEntry =
+        availableBoards.find((b) => b.filename === options.boardFilename) ??
+        availableBoards[0];
+      const parsed = parseBoardYaml(boardEntry?.content ?? '');
+      setJeopardyCategories(parsed.jeopardy);
+      setDoubleJeopardyCategories(parsed.double_jeopardy);
+      setFinalJeopardy(parsed.final_jeopardy);
+      setRound('jeopardy');
+    }
+
+    setHasGameInProgress(true);
+    setViewMode('host_game');
+    hostInitSession(options.password, options.contestants);
   };
 
-  if (inSetup) {
+  if (viewMode === 'host_setup') {
     return (
       <SetupScreen
+        availableBoards={availableBoards}
+        selectedBoardFilename={selectedBoardFilename}
         initialContestants={contestants}
         initialPassword={password}
-        buzzUrl={buzzUrl}
-        onStartGame={handleStartGame}
+        initialTimerSettings={timerSettings}
+        hasGameInProgress={hasGameInProgress}
+        onSaveSetup={handleSaveSetup}
+        onBackToHome={() => setViewMode('home')}
       />
     );
   }
@@ -174,6 +278,7 @@ export const App: React.FC = () => {
       .map(([cid]) => cid);
   };
 
+  // When an answer is revealed, buzzers are NOT active right away — host clicks "Enable Buzzers" after reading aloud
   const handleSelectClue = (clue: ClueState, categoryTitle: string) => {
     setActiveClueRef({
       round: clue.round,
@@ -181,18 +286,15 @@ export const App: React.FC = () => {
       questionIndex: clue.questionIndex,
       categoryTitle,
     });
+    hostLockBuzzers(true);
+  };
 
-    const isPreRevealDailyDouble =
-      clue.dailyDouble && !clue.ddRevealed && !clue.completed;
-
-    if (!clue.dailyDouble && !isPreRevealDailyDouble) {
-      hostOpenBuzzers(
-        `${categoryTitle} ($${clue.value})`,
-        getLockedOutIdsForClue(clue)
-      );
-    } else {
-      hostLockBuzzers(true);
-    }
+  const handleEnableBuzzers = () => {
+    if (!activeClue || !activeClueRef) return;
+    hostOpenBuzzers(
+      `${activeClueRef.categoryTitle} ($${activeClue.value})`,
+      getLockedOutIdsForClue(activeClue)
+    );
   };
 
   const handleOutcomeToggle = (contestantId: string, outcome: ClueOutcome) => {
@@ -219,13 +321,19 @@ export const App: React.FC = () => {
     hostSyncContestants(nextContestants);
 
     if (!nextClue.dailyDouble) {
+      const lockedOutIds = getLockedOutIdsForClue(nextClue);
       if (newOutcome === 'incorrect') {
-        hostOpenBuzzers(
-          `${activeClueRef.categoryTitle} ($${nextClue.value})`,
-          getLockedOutIdsForClue(nextClue)
-        );
+        // Immediately activate buzzers for remaining eligible players
+        if (lockedOutIds.length < nextContestants.length) {
+          hostOpenBuzzers(
+            `${activeClueRef.categoryTitle} ($${nextClue.value})`,
+            lockedOutIds
+          );
+        } else {
+          hostLockBuzzers(true);
+        }
       } else if (newOutcome === 'correct') {
-        hostLockBuzzers(false);
+        hostLockBuzzers(true);
       }
     }
   };
@@ -325,7 +433,7 @@ export const App: React.FC = () => {
 
         <div className="top-bar-right">
           <span className="join-badge">
-            Buzzer: <strong>{buzzUrl}</strong> | Password:{' '}
+            Board: <strong>{selectedBoardFilename}</strong> | Password:{' '}
             <strong>{password || '(none)'}</strong>
             {hostPeerStatus === 'online' && (
               <span style={{ color: '#2ecc71', marginLeft: 8 }}>● Live</span>
@@ -343,9 +451,9 @@ export const App: React.FC = () => {
           <button
             type="button"
             className="small-btn"
-            onClick={() => setInSetup(true)}
+            onClick={() => setViewMode('host_setup')}
           >
-            Contestants / Setup
+            Setup
           </button>
         </div>
       </header>
@@ -405,14 +513,11 @@ export const App: React.FC = () => {
           contestants={contestants}
           buzzOrder={sessionState.buzzOrder}
           buzzerOpen={sessionState.buzzerOpen}
+          timerSettings={timerSettings}
           onOutcomeToggle={handleOutcomeToggle}
           onDailyDoubleLockWager={handleDailyDoubleLockWager}
-          onReopenBuzzers={() =>
-            hostOpenBuzzers(
-              `${activeClueRef.categoryTitle} ($${activeClue.value})`,
-              getLockedOutIdsForClue(activeClue)
-            )
-          }
+          onEnableBuzzers={handleEnableBuzzers}
+          onLockBuzzers={() => hostLockBuzzers(false)}
           onCompleteAndClose={handleCompleteAndClose}
         />
       )}

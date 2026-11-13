@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type {
   BuzzEntry,
   ClueOutcome,
   ClueState,
   Contestant,
+  TimerSettings,
 } from '../types/game';
 import { formatCurrency } from '../utils/gameLogic';
+import { playTimesUpChime } from '../utils/sound';
+import { PodiumCountdown } from './PodiumCountdown';
 
 interface ClueModalProps {
   clue: ClueState;
@@ -13,9 +16,11 @@ interface ClueModalProps {
   contestants: Contestant[];
   buzzOrder: BuzzEntry[];
   buzzerOpen: boolean;
+  timerSettings: TimerSettings;
   onOutcomeToggle: (contestantId: string, outcome: ClueOutcome) => void;
   onDailyDoubleLockWager: (contestantId: string, wager: number) => void;
-  onReopenBuzzers: () => void;
+  onEnableBuzzers: () => void;
+  onLockBuzzers: () => void;
   onCompleteAndClose: () => void;
 }
 
@@ -25,9 +30,11 @@ export const ClueModal: React.FC<ClueModalProps> = ({
   contestants,
   buzzOrder,
   buzzerOpen,
+  timerSettings,
   onOutcomeToggle,
   onDailyDoubleLockWager,
-  onReopenBuzzers,
+  onEnableBuzzers,
+  onLockBuzzers,
   onCompleteAndClose,
 }) => {
   const [selectedDdContestantId, setSelectedDdContestantId] = useState<string>(
@@ -37,6 +44,107 @@ export const ClueModal: React.FC<ClueModalProps> = ({
     clue.ddWager !== undefined ? String(clue.ddWager) : String(clue.value)
   );
   const [editingDdWager, setEditingDdWager] = useState<boolean>(false);
+
+  // Active countdown state: 'none' | 'buzzer_window' | 'player_answer'
+  const [activeTimerType, setActiveTimerType] = useState<
+    'none' | 'buzzer_window' | 'player_answer'
+  >('none');
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
+  const [expiredMessage, setExpiredMessage] = useState<string | null>(null);
+
+  const firstBuzzer = buzzOrder[0];
+  const prevFirstBuzzerIdRef = useRef<string | undefined>(undefined);
+  const prevBuzzerOpenRef = useRef<boolean>(false);
+
+  // Detect transitions into Buzzer Window Open or Player Answering
+  useEffect(() => {
+    if (clue.dailyDouble) return;
+
+    const currentBuzzId = firstBuzzer?.contestantId;
+
+    // Case 1: A player just buzzed in!
+    if (currentBuzzId && currentBuzzId !== prevFirstBuzzerIdRef.current) {
+      prevFirstBuzzerIdRef.current = currentBuzzId;
+      prevBuzzerOpenRef.current = buzzerOpen;
+      setExpiredMessage(null);
+      if (timerSettings.playerAnswerEnabled) {
+        setActiveTimerType('player_answer');
+        setRemainingSeconds(timerSettings.playerAnswerSeconds);
+      } else {
+        setActiveTimerType('none');
+      }
+      return;
+    }
+
+    // Case 2: Buzzers just opened (either via "Enable Buzzers" button or auto-reopen after wrong answer)
+    if (buzzerOpen && !prevBuzzerOpenRef.current && !currentBuzzId) {
+      prevFirstBuzzerIdRef.current = undefined;
+      prevBuzzerOpenRef.current = true;
+      setExpiredMessage(null);
+      if (timerSettings.buzzerWindowEnabled) {
+        setActiveTimerType('buzzer_window');
+        setRemainingSeconds(timerSettings.buzzerWindowSeconds);
+      } else {
+        setActiveTimerType('none');
+      }
+      return;
+    }
+
+    // Case 3: Buzzers closed without an active buzzer (e.g., someone got it right or all players locked out)
+    if (!buzzerOpen && !currentBuzzId) {
+      prevFirstBuzzerIdRef.current = undefined;
+      prevBuzzerOpenRef.current = false;
+      if (activeTimerType !== 'none' && remainingSeconds > 0) {
+        setActiveTimerType('none');
+      }
+    } else {
+      prevBuzzerOpenRef.current = buzzerOpen;
+      prevFirstBuzzerIdRef.current = currentBuzzId;
+    }
+  }, [
+    buzzerOpen,
+    firstBuzzer?.contestantId,
+    clue.dailyDouble,
+    timerSettings.buzzerWindowEnabled,
+    timerSettings.buzzerWindowSeconds,
+    timerSettings.playerAnswerEnabled,
+    timerSettings.playerAnswerSeconds,
+    activeTimerType,
+    remainingSeconds,
+  ]);
+
+  // Second-by-second countdown interval
+  useEffect(() => {
+    if (activeTimerType === 'none') return;
+
+    if (remainingSeconds <= 0) {
+      playTimesUpChime();
+      if (activeTimerType === 'buzzer_window') {
+        onLockBuzzers();
+        setExpiredMessage(
+          "⏰ TIME'S UP! No one buzzed in — Player in control of the board selects again."
+        );
+      } else if (activeTimerType === 'player_answer') {
+        const responderName = firstBuzzer?.contestantName || 'Player';
+        setExpiredMessage(
+          `⏰ TIME'S UP for ${responderName}! Click the - button below to deduct their points.`
+        );
+      }
+      setActiveTimerType('none');
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setRemainingSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [
+    activeTimerType,
+    remainingSeconds,
+    firstBuzzer?.contestantName,
+    onLockBuzzers,
+  ]);
 
   const isDailyDoublePreReveal =
     clue.dailyDouble && !clue.ddRevealed && !clue.completed;
@@ -53,7 +161,6 @@ export const ClueModal: React.FC<ClueModalProps> = ({
     setEditingDdWager(false);
   };
 
-  // Pre-reveal screen for Daily Double (must select contestant & enter wager BEFORE answer is revealed)
   if (isDailyDoublePreReveal || editingDdWager) {
     return (
       <div className="clue-overlay">
@@ -126,7 +233,9 @@ export const ClueModal: React.FC<ClueModalProps> = ({
                 />
 
                 <button type="submit" className="primary-action-btn">
-                  {editingDdWager ? 'Update Wager & Return to Clue' : 'Reveal Answer'}
+                  {editingDdWager
+                    ? 'Update Wager & Return to Clue'
+                    : 'Reveal Answer'}
                 </button>
               </div>
             )}
@@ -136,18 +245,39 @@ export const ClueModal: React.FC<ClueModalProps> = ({
     );
   }
 
-  // Revealed Clue Card (matches clue-card.png)
   const displayClueText =
-    clue.answer.trim() || `[No answer text set in board.yaml for ${categoryTitle} $${clue.value}]`;
+    clue.answer.trim() ||
+    `[No answer text set in board YAML for ${categoryTitle} $${clue.value}]`;
 
-  const firstBuzzer = buzzOrder[0];
   const effectiveAmount = clue.dailyDouble
     ? (clue.ddWager ?? clue.value)
     : clue.value;
 
-  const scoringContestants = clue.dailyDouble && clue.ddContestantId
-    ? contestants.filter((c) => c.id === clue.ddContestantId)
-    : contestants;
+  const scoringContestants =
+    clue.dailyDouble && clue.ddContestantId
+      ? contestants.filter((c) => c.id === clue.ddContestantId)
+      : contestants;
+
+  // Check if all contestants have already tried and missed this clue
+  const incorrectCount = contestants.filter(
+    (c) => clue.outcomes[c.id] === 'incorrect'
+  ).length;
+  const allContestantsLockedOut = incorrectCount >= contestants.length;
+  const someoneGotItRight = contestants.some(
+    (c) => clue.outcomes[c.id] === 'correct'
+  );
+
+  // Determine whether to display the segmented PodiumCountdown bar
+  const showBuzzerCountdown =
+    !clue.dailyDouble &&
+    timerSettings.buzzerWindowEnabled &&
+    (activeTimerType === 'buzzer_window' ||
+      (expiredMessage && !firstBuzzer));
+  const showAnswerCountdown =
+    !clue.dailyDouble &&
+    timerSettings.playerAnswerEnabled &&
+    Boolean(firstBuzzer) &&
+    (activeTimerType === 'player_answer' || Boolean(expiredMessage));
 
   return (
     <div className="clue-overlay">
@@ -177,13 +307,13 @@ export const ClueModal: React.FC<ClueModalProps> = ({
               Change DD Player / Wager
             </button>
           )}
-          {!clue.dailyDouble && (
+          {!clue.dailyDouble && !allContestantsLockedOut && (
             <button
               type="button"
               className="small-btn"
-              onClick={onReopenBuzzers}
+              onClick={onEnableBuzzers}
             >
-              {buzzerOpen ? 'Reset / Clear Buzzers' : 'Unlock Buzzers'}
+              {buzzerOpen ? 'Restart Buzzer Timer' : 'Enable Buzzers'}
             </button>
           )}
         </div>
@@ -194,32 +324,76 @@ export const ClueModal: React.FC<ClueModalProps> = ({
 
         {!clue.dailyDouble && (
           <div className="buzzer-banner">
-            {firstBuzzer ? (
-              <>
-                <div className="first-buzz-pill">
-                  🔔 1st Buzz: {firstBuzzer.contestantName}
-                </div>
-                {buzzOrder.length > 1 && (
-                  <div className="buzz-queue-list">
-                    {buzzOrder.slice(1).map((b, i) => (
-                      <span key={b.contestantId}>
-                        #{i + 2} {b.contestantName} (+{b.deltaMs}ms)
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
+            {/* Host Enable Buzzers button before buzzers are activated */}
+            {!buzzerOpen &&
+              !firstBuzzer &&
+              !expiredMessage &&
+              !someoneGotItRight &&
+              !allContestantsLockedOut && (
+                <button
+                  type="button"
+                  className="enable-buzzers-btn"
+                  onClick={onEnableBuzzers}
+                >
+                  🔔 Enable Buzzers (After Reading Aloud)
+                </button>
+              )}
+
+            {/* Active responder who buzzed in */}
+            {firstBuzzer && (
+              <div className="first-buzz-pill">
+                🔔 {firstBuzzer.contestantName} Buzzed In!
+              </div>
+            )}
+
+            {/* Buzzer Open status */}
+            {buzzerOpen && !firstBuzzer && (
               <div
                 style={{
-                  fontSize: '0.9rem',
-                  color: buzzerOpen ? '#8ce99a' : '#9aa2d6',
-                  marginTop: 8,
+                  fontSize: '1.05rem',
+                  fontWeight: 700,
+                  color: '#8ce99a',
+                  marginTop: 6,
                 }}
               >
-                {buzzerOpen
-                  ? '● Buzzers Open — Waiting for players to buzz in...'
-                  : '○ Buzzers Locked'}
+                ● Buzzers Active — Waiting for players to buzz in...
+              </div>
+            )}
+
+            {/* Segmented Podium Countdown Bar (matches podium-countdown.png) */}
+            {showBuzzerCountdown && (
+              <PodiumCountdown
+                totalSeconds={timerSettings.buzzerWindowSeconds}
+                remainingSeconds={
+                  activeTimerType === 'buzzer_window' ? remainingSeconds : 0
+                }
+                label={`Buzzer Window (${
+                  activeTimerType === 'buzzer_window' ? remainingSeconds : 0
+                }s)`}
+              />
+            )}
+
+            {showAnswerCountdown && (
+              <PodiumCountdown
+                totalSeconds={timerSettings.playerAnswerSeconds}
+                remainingSeconds={
+                  activeTimerType === 'player_answer' ? remainingSeconds : 0
+                }
+                label={`${firstBuzzer?.contestantName} Answer Timer (${
+                  activeTimerType === 'player_answer' ? remainingSeconds : 0
+                }s)`}
+              />
+            )}
+
+            {/* Expired / Time's Up Banner */}
+            {expiredMessage && (
+              <div className="times-up-banner">{expiredMessage}</div>
+            )}
+
+            {allContestantsLockedOut && !someoneGotItRight && (
+              <div className="times-up-banner">
+                All contestants have attempted this clue. Player in control of
+                the board selects again.
               </div>
             )}
           </div>
@@ -256,7 +430,11 @@ export const ClueModal: React.FC<ClueModalProps> = ({
                     className={`score-btn correct ${
                       outcome === 'correct' ? 'active' : ''
                     }`}
-                    onClick={() => onOutcomeToggle(contestant.id, 'correct')}
+                    onClick={() => {
+                      setActiveTimerType('none');
+                      setExpiredMessage(null);
+                      onOutcomeToggle(contestant.id, 'correct');
+                    }}
                     title={
                       outcome === 'correct'
                         ? 'Credited! Click again to undo.'
@@ -273,7 +451,11 @@ export const ClueModal: React.FC<ClueModalProps> = ({
                     className={`score-btn incorrect ${
                       outcome === 'incorrect' ? 'active' : ''
                     }`}
-                    onClick={() => onOutcomeToggle(contestant.id, 'incorrect')}
+                    onClick={() => {
+                      setActiveTimerType('none');
+                      setExpiredMessage(null);
+                      onOutcomeToggle(contestant.id, 'incorrect');
+                    }}
                     title={
                       outcome === 'incorrect'
                         ? 'Docked! Click again to undo.'
@@ -296,7 +478,9 @@ export const ClueModal: React.FC<ClueModalProps> = ({
             className="primary-action-btn"
             onClick={onCompleteAndClose}
           >
-            {clue.completed ? 'Done Reviewing Clue' : 'Complete Clue & Return to Board'}
+            {clue.completed
+              ? 'Done Reviewing Clue'
+              : 'Complete Clue & Return to Board'}
           </button>
         </div>
       </div>
